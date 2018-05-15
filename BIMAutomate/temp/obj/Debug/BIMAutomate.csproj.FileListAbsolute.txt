@@ -1,0 +1,7 @@
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\bin\Debug\BIMAutomate.dll
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\bin\Debug\BIMAutomate.pdb
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\obj\Debug\BIMAutomate.csproj.CoreCompileInputs.cache
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\obj\Debug\BIMAutomate.dll
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\obj\Debug\BIMAutomate.pdb
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\bin\Debug\log4net.Config
+C:\Users\ArbiN\Desktop\BIMAutomate\BIMAutomate\obj\Debug\BIMAutomate.csprojResolveAssemblyReference.cache

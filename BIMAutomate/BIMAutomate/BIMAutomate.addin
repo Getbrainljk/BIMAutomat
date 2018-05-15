@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Name>BIMAutomate Application</Name>
+    <Assembly>"C:\\Users\\ArbiN\\Desktop\\BIMAutomate\\BIMAutomate\\bin\\Debug\\BIMAutomate.dll"</Assembly>
+    <AddInId>604b1052-f742-4951-8576-c261d1993122</AddInId>
+    <FullClassName>BIMAutomate.BIMAutomateClass</FullClassName>
+    <VendorId>ADSK</VendorId>
+  </AddIn>
+</RevitAddIns>

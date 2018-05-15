@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Assembly>BIMAutomate.dll</Assembly>
+    <ClientId>32305e23-fbe0-405a-9453-9da9bb7ef435</ClientId>
+    <FullClassName>BIMAutomate.BIMAutomateClass</FullClassName>
+    <Text>BIMAutomateClass</Text>
+    <Description>""</Description>
+    <VisibilityMode>AlwaysVisible</VisibilityMode>
+    <VendorId>ADSK</VendorId>
+    <VendorDescription>Autodesk, www.autodesk.com</VendorDescription>
+  </AddIn>
+</RevitAddIns>
