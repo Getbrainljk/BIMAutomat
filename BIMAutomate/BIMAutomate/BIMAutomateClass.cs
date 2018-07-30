@@ -17,7 +17,6 @@ namespace BIMAutomate
 {
     [TransactionAttribute(TransactionMode.Manual)]
     [RegenerationAttribute(RegenerationOption.Manual)]
-    [Journaling(JournalingMode.UsingCommandData)]
     public class BIMAutomateClass : IExternalCommand
     {
         Drawer drawer;
@@ -29,14 +28,12 @@ namespace BIMAutomate
         {
             try
             {
-                Debug.WriteLine("+++++++++++++++++++++++++++++DEBUG STARTING");
-
-                //Get application and document objects
+                Debug.WriteLine("+++++++++++++DEBUG STARTING");
+               // Get application and document objects
                 UIApplication uiApp = commandData.Application;
                 drawer = new Drawer(uiApp);
                 Document doc = uiApp.ActiveUIDocument.Document;
-                drawer.Draw();
-                Debug.WriteLine("+++++++++++++++++++++++++++++DEBUG ENDING");
+                Debug.WriteLine("+++++++++++++DEBUG ENDING");
 
             }
             catch (Exception ex)

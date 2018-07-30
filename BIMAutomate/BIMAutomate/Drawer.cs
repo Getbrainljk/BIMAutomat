@@ -1,4 +1,5 @@
-﻿using Autodesk.Revit.UI;
+﻿//nadir.arbia@gmail.com
+using Autodesk.Revit.UI;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,6 +16,9 @@ using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.DB.Plumbing;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Structure;
+using Autodesk.Revit.DB.Architecture;
+using Autodesk.Revit.DB.Analysis;
+using System.Text.RegularExpressions;
 
 namespace BIMAutomate
 {
@@ -25,12 +29,26 @@ namespace BIMAutomate
         private UIDocument uidoc;
         private Document doc;
         private Element currentElement;
-        private List<XYZ> currentEdges;
         private List<Duct> Ducts = new List<Duct>();
         private Dictionary<string, Connector> currentConnectors = new Dictionary<string, Connector>();
-        private Dictionary<string, XYZ> EdgesOfDuct = new Dictionary<string, XYZ>();
         private Connector currentConn = null;
-        public double diameter = 170 /305.8;
+        private int nbOfLvls = 0;
+        private List<double> elevations = new List<double>();
+        private Dictionary<Space, List<Tuple<Space, List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>>>> CorrespIntersec
+            = new Dictionary<Space, List<Tuple<Space, List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>>>>();
+
+        private XYZ currentConnOrigin = null, test11 = null;
+        private List<int> tiltingSpaces = new List<int>();
+        private Dictionary<int, int> correspSmallestSpaces = new Dictionary<int, int>();
+        private List<SpatialElement> localsTech2 = new List<SpatialElement>();
+        private List<SpatialElement> localsTech = new List<SpatialElement>();
+        private List<List<SpatialElement>> sortedlocalsTech = new List<List<SpatialElement>>();
+        private List<SpatialElement> stored = new List<SpatialElement>();
+
+        public double diameter = 170 / 305.8;
+
+        // was meant to be used to draw extraction mouth on Bath/Cooking/Wc rooms
+        private List<Room> neihbourRoom = new List<Room>();
 
         public Drawer(UIApplication uiapp)
         {
@@ -39,552 +57,796 @@ namespace BIMAutomate
             uidoc = uiapp.ActiveUIDocument;
             doc = uidoc.Document;
             Utils.lazyInstance.SetEnv(uiapp);
-            Debug.WriteLine("++Drawer constructor passed!");
+            localsTech = GetElements<SpatialElement>(BuiltInCategory.OST_MEPSpaces).ToList();
+         
+            GetNumberOf_Level();
+            if (SortLocalsTech() == -1)
+                TaskDialog.Show("Erreur", "La codification des gaines techniques n'a pas été effectué.");
+            Draw();
         }
-
-        #region TEST type of view
-        // test
-        public void GetViewType(Autodesk.Revit.DB.View view)
+        public List<SpatialElement> getVeriticality(SpatialElement el)
         {
-            // Get the view type of the given view, and format the prompt string
-            String prompt = "The view is ";
-
-            switch (view.ViewType)
+            List<SpatialElement> spatialElements = new List<SpatialElement>();
+            int nbPerVerticality = 0;
+            int caughttemp1 = 0;
+            int caughttemp2 = Convert.ToInt16(el.Name[2].ToString()
+             + el.Name[3].ToString());
+            foreach (var item in localsTech)
             {
-                case ViewType.AreaPlan:
-                    prompt += "an area view.";
-                    break;
-                case ViewType.CeilingPlan:
-                    prompt += "a reflected ceiling plan view.";
-                    break;
-                case ViewType.ColumnSchedule:
-                    prompt += "a column schedule view.";
-                    break;
-                case ViewType.CostReport:
-                    prompt += "a cost report view.";
-                    break;
-                case ViewType.Detail:
-                    prompt += "a detail view.";
-                    break;
-                case ViewType.DraftingView:
-                    prompt += "a drafting view.";
-                    break;
-                case ViewType.DrawingSheet:
-                    prompt += "a drawing sheet view.";
-                    break;
-                case ViewType.Elevation:
-                    prompt += "an elevation view.";
-                    break;
-                case ViewType.EngineeringPlan:
-                    prompt += "an engineering view.";
-                    break;
-                case ViewType.FloorPlan:
-                    prompt += "afloor plan view.";
-                    break;
-                case ViewType.Internal:
-                    prompt += "Revit's internal view.";
-                    break;
-                case ViewType.Legend:
-                    prompt += "a legend view.";
-                    break;
-                case ViewType.LoadsReport:
-                    prompt += "a loads report view.";
-                    break;
-                case ViewType.PanelSchedule:
-                    prompt += "a panel schedule view.";
-                    break;
-                case ViewType.PresureLossReport:
-                    prompt += "a pressure loss report view.";
-                    break;
-                case ViewType.Rendering:
-                    prompt += "a rendering view.";
-                    break;
-                case ViewType.Report:
-                    prompt += "a report view.";
-                    break;
-                case ViewType.Schedule:
-                    prompt += "a schedule view.";
-                    break;
-                case ViewType.Section:
-                    prompt += "a cross section view.";
-                    break;
-                case ViewType.ThreeD:
-                    prompt += "a 3-D view.";
-                    break;
-                case ViewType.Undefined:
-                    prompt += "an undefined/unspecified view.";
-                    break;
-                case ViewType.Walkthrough:
-                    prompt += "a walkthrough view.";
-                    break;
-                default:
-                    break;
+                if (item.Name.ToUpper().Contains("GT"))
+                {
+                    try
+                    {
+                        caughttemp1 = Convert.ToInt16(item.Name[2].ToString() + item.Name[3].ToString());
+                        if (caughttemp1 == caughttemp2)
+                        {
+                            nbPerVerticality += 1;
+                            spatialElements.Add(item);
+                        }
+                    }
+                    catch
+                    {
+                        TaskDialog.Show("Erreur de codification.", "Codification invalide de la gaine: " + item.Name);
+                        System.Environment.Exit(-1);
+                    }
+                }
+                spatialElements.Sort(delegate (SpatialElement c1, SpatialElement c2)
+                {
+                    return c1.Level.Elevation.CompareTo(c2.Level.Elevation);
+                });
             }
-
-            // Give the user some information
-            Autodesk.Revit.UI.TaskDialog.Show("Revit", prompt);
+            return spatialElements;
         }
-        #endregion
 
+        private int SortLocalsTech()
+        {
+            if (localsTech.Count() == 0)
+                return -1;
+
+            try
+            {
+                bool neg = false;
+                int i = 0;
+                string nb = "1";
+                string nb2 = "1";
+                foreach (var item in localsTech)
+                    if (localsTech.ElementAt(i).Name.ToUpper().Contains("GT"))
+                    {
+                        nb = localsTech.ElementAt(i).Name[6].ToString() + localsTech.ElementAt(i).Name[7].ToString();
+                        nb2 = localsTech.ElementAt(i).Name[6].ToString() + localsTech.ElementAt(i).Name[7].ToString();
+                        break;
+                    }
+
+
+                List<int> nbs = new List<int>();
+
+                for (int index = 0; index < localsTech.Count(); index += 1)
+                {
+                    int k = index;
+                    if (localsTech.ElementAt(index).Name.ToUpper().Contains("GT"))
+                        nb = localsTech.ElementAt(index).Name[2].ToString() + localsTech.ElementAt(index).Name[3].ToString();
+
+                    if (localsTech.ElementAt(index).Name.ToUpper().Contains("GT") && !nbs.Contains(Convert.ToInt32(nb)))
+                    {
+                        var sorted = getVeriticality(localsTech.ElementAt(index));
+                        if (sorted.Count() == 0)
+                            return -1;
+                        sortedlocalsTech.Add(sorted);
+                        nbs.Add(Convert.ToInt32(nb));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("Erreur de nommage.", "Pour la bonne reconnaissance du programme, il est nécessaire de nommer vos gaines tel que: \"GT[n]\", \"n\" étant le numéro de gaine de la verticalité.(Entier relatif) Example: GT1, gt1, gt01, GT01_N-1...");
+            }
+            return 0;
+        }
 
         public void Draw()
         {
-            #region winform running..
-            /*
+            sortedlocalsTech = sortedlocalsTech.Distinct(new CusComparer()).ToList();
             try
             {
-                System.Windows.Forms.Application.EnableVisualStyles();
-        
-            }
-            catch {}
-            try
-            {
-                System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
-            }
-            catch {}
-            try
-            {
-                System.Windows.Forms.Application.Run(new AutomateForm(doc, uidoc));
-            }
-            catch {}
-            */
-            #endregion
-
-
-            FilteredElementCollector spaceColl = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_MEPSpaces);
-            //  LabelUtils.GetLabelFor(BuiltInParameter.FAMILY_ELEM_SUBCATEGORY);
-            XYZ sp = null, ep = null;
-
-            ElementId levelId = ElementId.InvalidElementId;
-            ICollection<ElementId> selectedIds = uidoc.Selection.GetElementIds();
-            Document document = uidoc.Document;
-            int i = 0;
-            RevitDataContext.lazyInstance.SpacesInfo = new Dictionary<Space, Tuple<XYZ, List<XYZ>>>();
-            foreach (ElementId id in selectedIds)
-            {
-                Element e = document.GetElement(id);
-                //Debug.WriteLine(e.Name);
-                if (e is Space)
+                for (int i = 0; i < sortedlocalsTech.Count(); i += 1)
                 {
-                    Space space = e as Space;
-                    if (space.Name.Contains("GAINE"))
+                    foreach (var item in sortedlocalsTech.ElementAt(i))
                     {
-                        Utils.lazyInstance.GetElementLocation(out sp, space);
+                        var myspace = doc.GetElement(item.Id) as Space;
                         SpatialElementGeometryCalculator calculator = new SpatialElementGeometryCalculator(doc);
-                        SpatialElementGeometryResults results = calculator.CalculateSpatialElementGeometry(space); // compute the room geometry 
+                        SpatialElementGeometryResults results = calculator.CalculateSpatialElementGeometry(myspace); // compute the room geometry 
                         Solid roomSolid = results.GetGeometry();
-                        List<Face> lf = new List<Face>();
-                        List<XYZ> Edges = new List<XYZ>();
-                        List<XYZ> temp = new List<XYZ>();
-                        foreach (Face face in roomSolid.Faces)
-                        {
+                        results.GetGeometry();
 
-                            foreach (EdgeArray item in face.EdgeLoops)
-                            {
-                                List<XYZ> lc = JtBoundingBoxXyzExtensionMethods.GetPolygon(item);
-                                foreach (var subitem in lc)
-                                    temp.Add(subitem);
-                            }
-                        }
-                        XYZ tempXYZ = null;
-                        #region delete identical points, Distinct() linq not that smart
-                        foreach (var item in temp)
-                        {
-                            if (tempXYZ == null)
-                            {
-                                tempXYZ = item;
-                                Edges.Add(item);
-                            }
-                            else
-                            {
-                                bool isPresent = false;
-                                foreach (var item2 in Edges)
-                                {
-                                    if (item.X == item2.X
-                                        && item.Y == item2.Y
-                                        && item.Z == item2.Z)
-                                        isPresent = true;
-                                }
-                                if (isPresent == false)
-                                    Edges.Add(item);
-                            }
-                        }
-                        #endregion
-                        RevitDataContext.lazyInstance.SpacesInfo.Add(space, new Tuple<XYZ, List<XYZ>>(Utils.lazyInstance.GetCenterOfPolygon(Edges), Edges));
+                        XYZ sp = null, ep = null;
+
+                        ElementId levelId = ElementId.InvalidElementId;
+                        Document document = uidoc.Document;
+                        Utils.lazyInstance.GetElementLocation(out sp, myspace);
+                        BoundingBoxXYZ bbxyz = myspace.get_BoundingBox(null);   
+
+                        bbxyz.Enabled = true;
+                        List<XYZ> edges = new List<XYZ>();
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2)));
+                        edges.Add(new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2)));
+
+                        Utils.lazyInstance.GetLowestAndHighestPolygon(edges, myspace.Level);
+                        RevitDataContext.lazyInstance.SpacesInfo.Add(myspace, new Tuple<XYZ,
+                                                                                        List<XYZ>,
+                                                                                        List<XYZ>,
+                                                                                        List<XYZ>>(Utils.lazyInstance.GetCenterOfPolygon(edges),
+                                                                                                    edges, new List<XYZ>(Utils.lazyInstance.lowestPolyg), new List<XYZ>(Utils.lazyInstance.highestPolyg)));
+                        ep = sp;
+
                     }
+                    Debug.WriteLine("count(): " + RevitDataContext.lazyInstance.SpacesInfo.Count());
+                    CreateDucts(i);
+                    correspSmallestSpaces.Clear();
+                    tiltingSpaces.Clear();
+                    currentConnectors.Clear();
+                    CorrespIntersec.Clear();
+                    RevitDataContext.lazyInstance.SpacesInfo.Clear();
                 }
             }
-            ep = sp;
-            CreateDucts();
+            catch
+            {
+                TaskDialog.Show("Erreur", "Erreur: Vérifier bien que toutes les gaines ont été correctement assigné. Supprimez tous les espaces non assignés et non clos.");
+            }
         }
 
-        private void CreateDucts()
+
+
+        // Get the path  best one
+        private Tuple<XYZ, XYZ> GetBestPath()
         {
-            bool nextIsTilting = false;
-            ElementId levelId = ElementId.InvalidElementId;
-            ICollection<ElementId> selectedIds = uidoc.Selection.GetElementIds();
-            Document document = uidoc.Document;
+            XYZ bStartingP = null, bEndingP = null;
+
+            //left in the plan
+            XYZ S1 = new XYZ(); XYZ S2 = new XYZ(); XYZ S3 = new XYZ(); XYZ S4 = new XYZ();
+            // right in the plan
+            XYZ S5 = new XYZ(); XYZ S6 = new XYZ(); XYZ S7 = new XYZ(); XYZ S8 = new XYZ();
+
+
+            ////// Lookup, it is the 2nd space  we are checking in
+            //left in the plan
+            XYZ S1Lookup = new XYZ(); XYZ S2Lookup = new XYZ(); XYZ S3Lookup = new XYZ(); XYZ S4Lookup = new XYZ();
+            // right in the plan
+            XYZ S5Lookup = new XYZ(); XYZ S6Lookup = new XYZ(); XYZ S7Lookup = new XYZ(); XYZ S8Lookup = new XYZ();
             int i = 0;
-
-            foreach (ElementId id in selectedIds)
+            foreach (var spaceInfoItem in RevitDataContext.lazyInstance.SpacesInfo)
             {
-                Element e = document.GetElement(id);
-                if (e is Space)
+                // Polygon Right in the plan
+                BoundingBoxXYZ bbxyz = spaceInfoItem.Key.get_BoundingBox(null);
+                bbxyz.Enabled = true;
+
+                S1 = new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2));
+                S2 = new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2));
+                S3 = new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2));
+                S4 = new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(0).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2));
+                S5 = new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2));
+                S6 = new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(1).Z, 2));
+                S7 = new XYZ(Math.Round(bbxyz.get_Bounds(0).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2));
+                S8 = new XYZ(Math.Round(bbxyz.get_Bounds(1).X, 2), Math.Round(bbxyz.get_Bounds(1).Y, 2), Math.Round(bbxyz.get_Bounds(0).Z, 2));
+
+                List<Tuple<Space, List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>>> Gintersections
+                         = new List<Tuple<Space, List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>>>();
+                ////// Lookup, it is the 2nd space  we are checking in
+                for (int j = 0; j < RevitDataContext.lazyInstance.SpacesInfo.Count(); j += 1)
                 {
-                    Space space = e as Space;
-                    if (space.Name.Contains("GAINE"))
+                    if (j != i)
                     {
-                        SpatialElementGeometryCalculator calculator = new SpatialElementGeometryCalculator(document);
-                        SpatialElementGeometryResults results = calculator.CalculateSpatialElementGeometry(space); // compute the room geometry 
-                        Solid roomSolid = results.GetGeometry();
-                        List<Face> lf = new List<Face>();
-                        List<XYZ> Edges = new List<XYZ>();
-                        List<XYZ> temp = new List<XYZ>();
-                        foreach (Face face in roomSolid.Faces)
-                        {
+                        /// param are projected face start & ending point, lookingup start & ending point and intersection respectively 
+                        List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>> intersections = new List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>();
 
-                            foreach (EdgeArray item in face.EdgeLoops)
+                        BoundingBoxXYZ bbxyzLookup = RevitDataContext.lazyInstance.SpacesInfo.ElementAt(j).Key.get_BoundingBox(null);
+                        bbxyzLookup.Enabled = true;
+
+                        // Polygon Left in the plan
+                        S1Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(0).X, 2), Math.Round(bbxyzLookup.get_Bounds(0).Y, 2), Math.Round(bbxyzLookup.get_Bounds(1).Z, 2));
+                        S2Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(1).X, 2), Math.Round(bbxyzLookup.get_Bounds(0).Y, 2), Math.Round(bbxyzLookup.get_Bounds(1).Z, 2));
+                        S3Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(0).X, 2), Math.Round(bbxyzLookup.get_Bounds(0).Y, 2), Math.Round(bbxyzLookup.get_Bounds(0).Z, 2));
+                        S4Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(1).X, 2), Math.Round(bbxyzLookup.get_Bounds(0).Y, 2), Math.Round(bbxyzLookup.get_Bounds(0).Z, 2));
+                        // Polygon Right in the plan
+                        S5Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(0).X, 2), Math.Round(bbxyzLookup.get_Bounds(1).Y, 2), Math.Round(bbxyzLookup.get_Bounds(1).Z, 2));
+                        S6Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(1).X, 2), Math.Round(bbxyzLookup.get_Bounds(1).Y, 2), Math.Round(bbxyzLookup.get_Bounds(1).Z, 2));
+                        S7Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(0).X, 2), Math.Round(bbxyzLookup.get_Bounds(1).Y, 2), Math.Round(bbxyzLookup.get_Bounds(0).Z, 2));
+                        S8Lookup = new XYZ(Math.Round(bbxyzLookup.get_Bounds(1).X, 2), Math.Round(bbxyzLookup.get_Bounds(1).Y, 2), Math.Round(bbxyzLookup.get_Bounds(0).Z, 2));
+
+                        // Polygon projected from highest  of first polygon  to lowest lookup's polygon
+                        XYZ S1Pp = new XYZ(Math.Round(S2.X, 2), Math.Round(S2.Y, 2), Math.Round(S4Lookup.Z, 2));
+                        XYZ S2Pp = new XYZ(Math.Round(S6.X, 2), Math.Round(S6.Y, 2), Math.Round(S8Lookup.Z, 2));
+                        XYZ S3Pp = new XYZ(Math.Round(S1.X, 2), Math.Round(S1.Y, 2), Math.Round(S3Lookup.Z, 2));
+                        XYZ S4Pp = new XYZ(Math.Round(S5.X, 2), Math.Round(S5.Y, 2), Math.Round(S7Lookup.Z, 2));
+
+                        // because for some reasons Line object has no properties startingpoint and ending point         
+                        List<Tuple<Line, XYZ, XYZ>> projectedFace = new List<Tuple<Line, XYZ, XYZ>>();
+                        projectedFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S8Lookup, S7Lookup), S8Lookup, S7Lookup));
+                        projectedFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S4Lookup, S3Lookup), S4Lookup, S3Lookup));
+                        projectedFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S4Lookup, S8Lookup), S4Lookup, S8Lookup));
+                        projectedFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S3Lookup, S7Lookup), S3Lookup, S7Lookup));
+
+                        List<Tuple<Line, XYZ, XYZ>> lookingUpFace = new List<Tuple<Line, XYZ, XYZ>>();
+                        lookingUpFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S2Pp, S4Pp), S2Pp, S4Pp));
+                        lookingUpFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S1Pp, S3Pp), S1Pp, S3Pp));
+                        lookingUpFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S1Pp, S2Pp), S1Pp, S2Pp));
+                        lookingUpFace.Add(new Tuple<Line, XYZ, XYZ>(Line.CreateBound(S3Pp, S4Pp), S3Pp, S4Pp));
+
+                        foreach (Tuple<Line, XYZ, XYZ> lp in projectedFace)
+                        {
+                            foreach (Tuple<Line, XYZ, XYZ> llu in lookingUpFace)
                             {
-                                List<XYZ> lc = JtBoundingBoxXyzExtensionMethods.GetPolygon(item);
-                                foreach (var subitem in lc)
-                                    temp.Add(subitem);
+                                IntersectionResultArray intersectionR = new IntersectionResultArray();
+                                SetComparisonResult res = SetComparisonResult.Disjoint;
+                                res = lp.Item1.Intersect(llu.Item1, out intersectionR);
+                                if (SetComparisonResult.Disjoint != res)
+                                {
+                                    if (intersectionR != null)
+                                    {
+                                        if (!intersectionR.IsEmpty)
+                                        {
+                                            intersections.Add(new Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>(new Tuple<XYZ, XYZ>(new XYZ(Math.Round(lp.Item2.X, 2), Math.Round(lp.Item2.Y, 2), Math.Round(lp.Item2.Z, 2)),
+                                                                                                                                   new XYZ(Math.Round(lp.Item3.X, 2), Math.Round(lp.Item3.Y, 2), Math.Round(lp.Item3.Z, 2))),
+                                                                                                                                   new Tuple<XYZ, XYZ>(new XYZ(Math.Round(llu.Item2.X, 2), Math.Round(llu.Item2.Y, 2), Math.Round(llu.Item2.Z, 2)),
+                                                                                                                                   new XYZ(Math.Round(llu.Item3.X, 2), Math.Round(llu.Item3.Y, 2), Math.Round(llu.Item3.Z, 2))),
+                                                                                                                                   new XYZ(Math.Round(intersectionR.get_Item(0).XYZPoint.X, 2), Math.Round(intersectionR.get_Item(0).XYZPoint.Y, 2), Math.Round(intersectionR.get_Item(0).XYZPoint.Z, 2))));
+                                        }
+                                    }
+                                }
                             }
                         }
-                        XYZ tempXYZ = null;
-                        #region delete identical points, Distinct() linq not that smart
-                        foreach (var item in temp)
-                        {
-                            if (tempXYZ == null)
-                            {
-                                tempXYZ = item;
-                                Edges.Add(item);
-                            }
-                            else
-                            {
-                                bool isPresent = false;
-                                foreach (var item2 in Edges)
-                                {
-                                    if (item.X == item2.X
-                                        && item.Y == item2.Y
-                                        && item.Z == item2.Z)
-                                        isPresent = true;
-                                }
-                                if (isPresent == false)
-                                    Edges.Add(item);
-                            }
-                        }
-                        #endregion
-
-                        try
-                        {
-                            Level currentLevel = null;
-                            FilteredElementCollector collector = new FilteredElementCollector(document);
-                            //Get the duct Type
-                            FilteredElementCollector collector1 = new FilteredElementCollector(document);
-                            collector1.OfClass(typeof(DuctType));
-                            DuctType ductType = null;
-                            foreach (Element elem in collector1)
-                            {
-                                /** 
-                                    * Raccord avec té et coude droit
-                                    Raccord par té avec coude segmenté
-                                    Raccord par piquage et coude segmenté
-                                    Raccord par té et coude droit
-                                    Raccord par piquage et coude droit
-                                    Raccord avec té et coude segmenté
-                                    Raccord par piquage et coude à rayon
-                                    Raccord par piquage et coude segmenté
-                                    Raccord par piquage et coude droit
-                                    Raccord par piquage et coude lisse
-                                    Raccord avec té et coude lisse
-                                    Synoptique de désenfumage
-                                    Raccord par piquage et coude droit chanfreiné
-                                    Raccord avec té et coude à rayon
-                            */
-                                if (elem.Name == "Raccord avec té et coude lisse")
-                                    ductType = elem as DuctType;
-                            }
-                            FilteredElementCollector collector2 = new FilteredElementCollector(document);
-                            collector2.OfClass(typeof(MechanicalSystemType)).OfCategory(BuiltInCategory.OST_DuctSystem);
-                            MechanicalSystemType mechType = null;
-                            foreach (Element e1 in collector2)
-                            {
-                                /**
-                                    Désenfumage air neuf
-                                    Conduit de Fumée
-                                    Soufflage
-                                    Reprise
-                                    Extraction
-                                    VMC
-                                    Desenfumage Extraction
-                                    Air Neuf
-                                    Rejet
-                                    Desenfumage Air Neuf
-                                    Soufflage Recylage
-                                    Reprise Recyclage
-                                    Soufflage VC
-                                    Soufflage CTA
-                                    Debug.WriteLine(e1.Name);
-                                    ..
-                                    **/
-                                if (e1.Name == "Extraction")
-                                    mechType = e1 as MechanicalSystemType;
-                            }
-                            if (currentLevel != null)
-                            {
-                                if (currentLevel.Name.Equals(Utils.lazyInstance.levels.LastOrDefault().Name))
-                                    i = 0;
-                            }
-
-                            /**
-                             *  Get next space 
-                             **/
-                            bool GetMe = false;
-                            Space nextSpace = null;
-                            int at = 0;
-                            foreach (var key in RevitDataContext.lazyInstance.SpacesInfo.Keys)
-                            {
-                                if (key.Number == space.Number)
-                                    GetMe = true;
-                                if (GetMe == true)
-                                {
-                                    if (at != 0)
-                                        at -= 1;
-                                    break;
-                                }
-                                at += 1;
-                            }
-
-                            if (GetMe == true)
-                            {
-                                var kvp1 = RevitDataContext.lazyInstance.SpacesInfo.ElementAt(at);
-                                Level level = e.Document.GetElement(kvp1.Key.LevelId) as Level;
-                                Utils.lazyInstance.GetLowestAndHighestPolygon(kvp1.Value.Item2, level);
-
-                                List<XYZ> sortedLowestPoly = Utils.lazyInstance.lowestPolyg.ElementAt(0).Value
-                                                             .OrderBy(x => x.X).ThenBy(x => x.Y).ToList();
-                                Utils.lazyInstance.lowestPolyg.ElementAt(0).Value.Sort();
-                                foreach (var item in Utils.lazyInstance.lowestPolyg.ElementAt(0).Value)
-                                    Debug.WriteLine(item.X + ", " + item.Y + ", " + item.Z);
-
-                                var kvp2 = RevitDataContext.lazyInstance.SpacesInfo.ElementAt(at + 1);
-                                Level nextlevel = e.Document.GetElement(kvp2.Key.LevelId) as Level;
-                                Utils.lazyInstance.GetLowestAndHighestPolygon(kvp2.Value.Item2, nextlevel);
-
-                                XYZ Nsp1 = kvp2.Value.Item2.ElementAt(0), Nsp2 = kvp2.Value.Item2.ElementAt(0),
-                                    Nsp3 = kvp2.Value.Item2.ElementAt(0), Nsp4 = kvp2.Value.Item2.ElementAt(0),
-                                    Nsp5 = kvp2.Value.Item2.ElementAt(0), Nsp6 = kvp2.Value.Item2.ElementAt(0),
-                                    Nsp7 = kvp2.Value.Item2.ElementAt(0), Nsp8 = kvp2.Value.Item2.ElementAt(0);
-
-                                foreach (var summit in Utils.lazyInstance.lowestPolyg.ElementAt(0).Value)
-                                {
-
-                                }
-                                foreach (var summit in Utils.lazyInstance.highestPolyg.Values)
-                                {
-
-                                }
-
-
-                            }
-                            currentLevel = e.Document.GetElement(e.LevelId) as Level;
-                            XYZ startingPoint;
-                            XYZ endingPoint;
-
-                            /**
-                             *  Get the starting point shifted depending on next space location
-                             * */
-                             
-                            //startingPoint = new XYZ(startingPoint.X + 1 , )
-
-                            Utils.lazyInstance.GetLowestAndHighestPolygon(Edges, currentLevel);
-                            startingPoint = Utils.lazyInstance.GetCenterOfPolygon(Utils.lazyInstance.lowestPolyg[currentLevel]);
-                            //startingPoint = new XYZ(Utils.lazyInstance.GetCenterOfPolygon(Utils.lazyInstance.lowestPolyg[currentLevel]).X, Utils.lazyInstance.GetCenterOfPolygon(Utils.lazyInstance.lowestPolyg[currentLevel]).Y, Utils.lazyInstance.GetCenterOfPolygon(Utils.lazyInstance.highestPolyg[currentLevel]).Z);
-                            endingPoint = Utils.lazyInstance.GetCenterOfPolygon(Utils.lazyInstance.highestPolyg[currentLevel]);
-                            Duct duct;
-                            Connector ductStart;
-                            Connector ductEnd;
-                            using (Transaction tr = new Transaction(document))
-                            {
-                                tr.Start("Create New Duct");
-                                {
-                                    duct = Duct.Create(doc, mechType.Id, ductType.Id, currentLevel.Id, startingPoint, endingPoint);
-                                    Parameter parameter = duct.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM);
-                                    parameter.Set(diameter);
-
-                                    List<Connector> lC = new List<Connector>();
-                                    foreach (Connector conn in duct.ConnectorManager.Connectors)
-                                    {
-                                        if (conn.ConnectorType == ConnectorType.End)
-                                            lC.Add(conn);
-                                    }
-
-                                    if (lC.ElementAt(0).Origin.Z > lC.ElementAt(1).Origin.Z)
-                                    {
-                                        ductStart = lC.ElementAt(1);
-                                        ductEnd = lC.ElementAt(0);
-                                    }
-                                    else
-                                    {
-                                        ductStart = lC.ElementAt(0);
-                                        ductEnd = lC.ElementAt(1);
-                                    }
-                                    currentConnectors.Add("start" + i, ductStart);
-                                    currentConnectors.Add("end" + i, ductEnd);
-                                    i += 1;
-                                }
-                                tr.Commit();
-                            }
-
-                            if (i != 1)
-                            {
-                                Duct ductConnection;
-                                List<Connector> lC2 = new List<Connector>();
-                                var list = currentConnectors.Keys.ToList();
-                                list.Sort();
-                                using (Transaction tr2 = new Transaction(document))
-                                {
-                                    tr2.Start("Create Connection Duct");
-                                    {
-                                        ductConnection = Duct.Create(doc, ductType.Id, currentLevel.Id, currentConnectors[list.ElementAt(0)], currentConnectors[list.ElementAt(3)]);
-
-                                        foreach (Connector conn in ductConnection.ConnectorManager.Connectors)
-                                        {
-                                            if (conn.ConnectorType == ConnectorType.End)
-                                                lC2.Add(conn);
-                                        }
-                                        int index = i - 2;
-                                        currentConnectors.Remove("start" + index);
-                                        currentConnectors.Remove("end" + index);
-                                    }
-                                    tr2.Commit();
-                                }
-
-                                Connector beforeCurrentDuctStart;
-                                Connector beforeCurrentDuctEnd;
-                                Connector intermediateDuctStart;
-                                Connector intermediateDuctEnd;
-
-                                using (Transaction tr3 = new Transaction(document))
-                                {
-                                    tr3.Start("Create Elbow Fitting Duct");
-                                    {
-
-                                        List<Connector> lC3 = new List<Connector>();
-                                        foreach (Connector conn in Ducts.Last().ConnectorManager.Connectors)
-                                        {
-                                            if (conn.ConnectorType == ConnectorType.End)
-                                                lC3.Add(conn);
-                                        }
-
-                                        if (lC3.ElementAt(0).Origin.Z > lC3.ElementAt(1).Origin.Z)
-                                        {
-                                            beforeCurrentDuctStart = lC3.ElementAt(1);
-                                            beforeCurrentDuctEnd = lC3.ElementAt(0);
-                                        }
-                                        else
-                                        {
-                                            beforeCurrentDuctStart = lC3.ElementAt(0);
-                                            beforeCurrentDuctEnd = lC3.ElementAt(1);
-                                        }
-
-                                        List<Connector> lC4 = new List<Connector>();
-                                        foreach (Connector conn in ductConnection.ConnectorManager.Connectors)
-                                        {
-                                            if (conn.ConnectorType == ConnectorType.End)
-                                                lC4.Add(conn);
-                                        }
-
-                                        if (lC4.ElementAt(0).Origin.Z > lC4.ElementAt(1).Origin.Z)
-                                        {
-                                            intermediateDuctStart = lC4.ElementAt(1);
-                                            intermediateDuctEnd = lC4.ElementAt(0);
-                                        }
-                                        else
-                                        {
-                                            intermediateDuctStart = lC4.ElementAt(0);
-                                            intermediateDuctEnd = lC4.ElementAt(1);
-                                        }
-
-                                        try
-                                        {
-                                            doc.Create.NewElbowFitting(beforeCurrentDuctEnd, intermediateDuctStart);
-                                            Debug.WriteLine("Elbow fitting created : intermediateDuct  / beforeCurrentDuct");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                       //     Debug.WriteLine("Exception: " + ex.ToString());
-                                            Debug.WriteLine("Connection FAILED :  intermediateDuct  / beforeCurrentDuct");
-                                        }
-
-                                        try
-                                        {
-                                            doc.Create.NewElbowFitting(intermediateDuctEnd, ductStart);
-                                            Debug.WriteLine("Elbow fitting created : intermediateDuct  / newDuct");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                          //  Debug.WriteLine("Exception: " + ex.ToString());
-                                            Debug.WriteLine("Connection FAILED :  intermediateDuct  / newDuct");
-                                        }
-                                    }
-                                    tr3.Commit();
-                                }
-                                
-                                using (Transaction tr4 = new Transaction(document))
-                                {
-                                    tr4.Start("Create  Connection Between Ducts");
-                                    {
-                                        try
-                                        {
-                                            //beforeCurrentDuctStart.ConnectTo(intermediateDuctEnd);
-                                            Debug.WriteLine("Connection PASSED : intermediateDuct / before currentDuct ");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Debug.WriteLine("Exception: " + ex.ToString());
-                                            Debug.WriteLine("Connection FAILED : intermediateDuct / before currentDuct ");
-                                        }
-
-                                        try
-                                        {
-                                          //  intermediateDuctEnd.ConnectTo(ductStart);
-                                            Debug.WriteLine("Connection PASSED: intermediateDuct / currentDuct ");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Debug.WriteLine("Exception: " + ex.ToString());
-                                            Debug.WriteLine("Connection FAILED : intermediateDuct / currentDuct ");
-                                        }
-                                        try
-                                        {
-                                          //  intermediateDuctEnd.ConnectTo(ductStart);
-                                            Debug.WriteLine("Connection PASSED: intermediateDuct / currentDuct ");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Debug.WriteLine("Exception: " + ex.ToString());
-                                            Debug.WriteLine("Connection FAILED : intermediateDuct / currentDuct ");
-                                        }
-                                    }
-                                    tr4.Commit();
-                                }
-                            }
-                            Ducts.Add(duct);
-                            currentEdges = Edges;
-                            currentElement = e;
-                            Utils.lazyInstance.lowestPolyg.Clear();
-                            Utils.lazyInstance.highestPolyg.Clear();
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine("Exception: " + ex.ToString());
-                            Debug.WriteLine("Process canceled before error ");
-                            break;
-                        }
+                        Utils.lazyInstance.PurgeList(intersections);
+                        Gintersections.Add(new Tuple<Space, List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>>(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(j).Key, intersections));
                     }
                 }
+                var Ginters = Gintersections.Distinct().ToList();
+                CorrespIntersec.Add(spaceInfoItem.Key, Ginters);
+                i += 1;
+            }
+            return new Tuple<XYZ, XYZ>(bStartingP, bEndingP);
+        }
+
+        private void GetTiltingSpace()
+        {
+            for (int i = 0; i < CorrespIntersec.Count(); i += 1)
+            {
+                int tiltingIndex = 0;
+                int j = 0;
+                var coord1 = Math.Abs(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Value.Item3.ElementAt(0).X);
+                var coord4 = Math.Abs(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Value.Item3.ElementAt(0).X);
+                foreach (var xyz in RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Value.Item3)
+                {
+                    if (coord1 < Math.Abs(xyz.X))
+                        coord1 = Math.Abs(xyz.X);
+                    if (coord4 > Math.Abs(xyz.X))
+                        coord4 = Math.Abs(xyz.X);
+                }
+                foreach (var item in CorrespIntersec.ElementAt(i).Value)
+                {
+                    var coord2 = Math.Abs(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(j).Value.Item3.ElementAt(0).X);
+                    var coord3 = Math.Abs(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(j).Value.Item3.ElementAt(0).X);
+
+
+                    foreach (var xyz1 in RevitDataContext.lazyInstance.SpacesInfo.ElementAt(j).Value.Item3)
+                    {
+                        if (coord2 < Math.Abs(xyz1.X))
+                            coord2 = Math.Abs(xyz1.X);
+                        if (coord3 > Math.Abs(xyz1.X))
+                            coord3 = Math.Abs(xyz1.X);
+                    }
+                    if (item.Item2.Count() == 0 && tiltingIndex >= i)
+                    {
+                        tiltingSpaces.Add(tiltingIndex);
+                        break;
+                    }
+                    if (tiltingIndex >= i
+                        && coord1 - coord3 <= 0
+                        && coord1 - coord2 < 0 && coord4 - coord3 < 0)
+                    {
+                        tiltingSpaces.Add(j);
+                        break;
+                    }
+                    if (tiltingIndex >= i
+                        && coord4 - coord2 <= 0
+                        && coord1 - coord2 < 0 && coord4 - coord3 < 0)
+                    {
+                        tiltingSpaces.Add(j - 1);
+                        break;
+                    }
+                    tiltingIndex += 1;
+                    j += 1;
+                }
+                i = tiltingIndex;
+            }
+        }
+
+        private void GetBestPosition()
+        {
+            List<int> sp = new List<int>();
+            int stop = 0;
+            tiltingSpaces.Add(RevitDataContext.lazyInstance.SpacesInfo.Count() - 1);
+            if (tiltingSpaces.Count() == 1)
+            {
+                for (int i = 0; i < RevitDataContext.lazyInstance.SpacesInfo.Count(); i += 1)
+                {
+                    correspSmallestSpaces.Add(i, RevitDataContext.lazyInstance.SpacesInfo.Count() - 1);
+                }
+                return;
+            }
+            stop = tiltingSpaces.ElementAt(0);
+            int range = 0;
+            for (int i = 0; i < RevitDataContext.lazyInstance.SpacesInfo.Count();)
+            {
+                int index = 0;
+                if (i > tiltingSpaces.ElementAt(range))
+                {
+                    index = range;
+                    range += 1;
+                }
+                while (index < tiltingSpaces.ElementAt(range))
+                {
+                    var volume = RevitDataContext.lazyInstance.SpacesInfo.ElementAt(index).Key.Volume;
+                    if (RevitDataContext.lazyInstance.SpacesInfo.ElementAt(index).Key.Volume <= volume)
+                        volume = RevitDataContext.lazyInstance.SpacesInfo.ElementAt(index).Key.Volume;
+                    index += 1;
+                }
+                if (index > i)
+                {
+                    while (i < index)
+                    {
+                        correspSmallestSpaces.Add(i, index);
+                        i += 1;
+                    }
+                }
+                else
+                {
+                    correspSmallestSpaces.Add(i, index);
+                    i += 1;
+                }
+            }
+        }
+
+        public IEnumerable<T> GetElements<T>(BuiltInCategory builtInCategory) where T : Element
+        {
+            FilteredElementCollector collector = new FilteredElementCollector(doc);
+            // Seems you must be a subclass of element to use the OfClass method
+            if (typeof(T) != typeof(Element))
+                collector.OfClass(typeof(T));
+            collector.OfCategory(builtInCategory);
+            return collector.Cast<T>();
+        }
+        Room GetRoomNeighbourAt(BoundarySegment bs, Room r)
+        {
+            Document doc = r.Document;
+
+            Element e = doc.GetElement(bs.ElementId);
+            Wall w =  e as Wall;
+
+            double wallThickness = w.Width;
+
+            double wallLength = (w.Location as
+              LocationCurve).Curve.Length;
+
+            Transform derivatives = bs.GetCurve()
+              .ComputeDerivatives(0.5, true);
+
+            XYZ midPoint = derivatives.Origin;
+
+            Debug.Assert(
+              midPoint.IsAlmostEqualTo(
+                bs.GetCurve().Evaluate(0.5, true)),
+              "expected same result from Evaluate and derivatives");
+
+            XYZ tangent = derivatives.BasisX.Normalize();
+
+            XYZ normal = new XYZ(tangent.Y, tangent.X * (-1), tangent.Z);
+
+            XYZ p = midPoint + wallThickness * normal;
+
+            Room otherRoom = doc.GetRoomAtPoint(p);
+
+            if (null != otherRoom)
+            {
+                if (otherRoom.Id == r.Id)
+                {
+                    normal = new XYZ(tangent.Y * (-1),
+                      tangent.X, tangent.Z);
+
+                    p = midPoint + wallThickness * normal;
+
+                    otherRoom = doc.GetRoomAtPoint(p);
+
+                    Debug.Assert(null == otherRoom
+                        || otherRoom.Id != r.Id,
+                      "expected different room on other side");
+                }
+            }
+            return otherRoom;
+        }
+
+        public List<String> GetRoomNeihbour(Room myroom)
+        {
+            List<string> rnbh = new List<string>();
+
+            SpatialElementBoundaryOptions opt
+            = new SpatialElementBoundaryOptions();
+
+            IList<IList<BoundarySegment>> loops;
+
+            Room neighbour;
+            loops = myroom.GetBoundarySegments(opt);
+            foreach (IList<BoundarySegment> loop in loops)
+            {
+                foreach (BoundarySegment seg in loop)
+                {
+                    neighbour = GetRoomNeighbourAt(seg, myroom);
+                    Debug.WriteLine("neighbour Name: " + neighbour.Name);
+                }
+            }
+            return rnbh;
+        }
+
+        private void GetNumberOf_Level()
+        {
+            StringBuilder levelInformation = new StringBuilder();
+            FilteredElementCollector collector = new FilteredElementCollector(doc);
+            ICollection<Element> collection = collector.OfClass(typeof(Level)).ToElements();
+            foreach (Element e in collection)
+            {
+                Level level = e as Level;
+                if (null != level)
+                {
+                    nbOfLvls += 1;
+                    elevations.Add(level.Elevation);
+                }
+            }
+        }
+        private void CreateDucts(int jndex)
+        { 
+            if (sortedlocalsTech.ElementAt(jndex).ElementAt(0).Name.Contains("GT24"))
+                Debug.WriteLine("TEST GAINE 24");
+            Debug.WriteLine(jndex);
+            ElementId levelId = ElementId.InvalidElementId;
+            tiltingSpaces.Clear();
+            GetBestPath();
+            GetTiltingSpace();
+            GetBestPosition();
+            currentConn = null;
+
+            for (int i = 0; i < sortedlocalsTech.ElementAt(jndex).Count();)
+            {
+                if (sortedlocalsTech.ElementAt(jndex).Count() == 1)
+                {
+                    Debug.WriteLine("i: " + i);
+                    break;  
+                }                
+
+                Element e = doc.GetElement(sortedlocalsTech.ElementAt(jndex).ElementAt(i).Id);
+                var space = doc.GetElement(sortedlocalsTech.ElementAt(jndex).ElementAt(i).Id) as Space;
+
+                try
+                {
+                    if (i >= RevitDataContext.lazyInstance.SpacesInfo.Count())
+                        break;
+                    SpatialElementGeometryCalculator calculator = new SpatialElementGeometryCalculator(doc);
+                    SpatialElementGeometryResults results = calculator.CalculateSpatialElementGeometry(space); // compute the room geometry 
+                    Solid roomSolid = results.GetGeometry();
+                    List<Face> lf = new List<Face>();
+                    List<XYZ> Edges = new List<XYZ>();
+                    List<XYZ> temp = new List<XYZ>();
+                    foreach (Face face in roomSolid.Faces)
+                    {
+                        foreach (EdgeArray item in face.EdgeLoops)
+                        {
+                            List<XYZ> lc = JtBoundingBoxXyzExtensionMethods.GetPolygon(item);
+                            foreach (var subitem in lc)
+                                temp.Add(subitem);
+                        }
+                    }
+                    XYZ tempXYZ = null;
+                    #region delete identical points, Distinct() linq not that smart
+                    foreach (var item in temp)
+                    {
+                        if (tempXYZ == null)
+                        {
+                            tempXYZ = item;
+                            Edges.Add(item);
+                        }
+                        else
+                        {
+                            bool isPresent = false;
+                            foreach (var item2 in Edges)
+                            {
+                                if (item.X == item2.X
+                                    && item.Y == item2.Y
+                                    && item.Z == item2.Z)
+                                    isPresent = true;
+                            }
+                            if (isPresent == false)
+                                Edges.Add(item);
+                        }
+                    }
+                    #endregion
+
+                    Level currentLevel = null;
+                    //Get the duct Type
+                    FilteredElementCollector collector1 = new FilteredElementCollector(doc);
+                    collector1.OfClass(typeof(DuctType));
+                    DuctType ductType = null;
+                    foreach (Element elem in collector1)
+                    {
+                        /** 
+                            * Raccord avec té et coude droit
+                            Raccord par té avec coude segmenté
+                            Raccord par piquage et coude segmenté
+                            Raccord par té et coude droit
+                            Raccord par piquage et coude droit
+                            Raccord avec té et coude segmenté
+                            Raccord par piquage et coude à rayon
+                            Raccord par piquage et coude segmenté
+                            Raccord par piquage et coude droit
+                            Raccord par piquage et coude lisse
+                            Raccord avec té et coude lisse
+                            Synoptique de désenfumage
+                            Raccord par piquage et coude droit chanfreiné
+                            Raccord avec té et coude à rayon
+                        **/
+                        if (elem.Name == "Raccord avec té et coude lisse"
+                            || elem.Name == "Connection with tee and smooth elbow") // gerer english
+                            ductType = elem as DuctType;
+                    }
+                    FilteredElementCollector collector2 = new FilteredElementCollector(doc);
+                    collector2.OfClass(typeof(MechanicalSystemType)).OfCategory(BuiltInCategory.OST_DuctSystem);
+                    MechanicalSystemType mechType = null;
+                    foreach (Element e1 in collector2)
+                    {
+                        /**
+                            Désenfumage air neuf
+                            Conduit de Fumée
+                            Soufflage
+                            Reprise
+                            Extraction
+                            VMC
+                            Desenfumage Extraction
+                            Air Neuf
+                            Rejet
+                            Desenfumage Air Neuf
+                            Soufflage Recylage
+                            Reprise Recyclage
+                            Soufflage VC
+                            Soufflage CTA
+                            ..
+                            **/
+                        if (e1.Name == "VMC" || e1.Name == "CMV")  // gerer english
+                            mechType = e1 as MechanicalSystemType;
+                    }
+
+                    /**
+                        *  Get next space 
+                        **/
+
+
+                    bool GetMe = false;
+                    int at = 0;
+                    foreach (var key in RevitDataContext.lazyInstance.SpacesInfo.Keys)
+                    {
+                        if (key.Number == space.Number)
+                            GetMe = true;
+                        if (GetMe == true)
+                        {
+                            if (at != 0)
+                                at -= 1;
+                            break;
+                        }
+                        at += 1;
+                    }
+
+                    currentLevel = e.Document.GetElement(e.LevelId) as Level;
+                    XYZ startingPoint = null;
+                    XYZ endingPoint = null;
+
+                    /**
+                        *  Get the starting point shifted depending on next space location
+                        * */
+
+                    Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Value.Item2, space.Level);
+                    List<XYZ> test1 = new List<XYZ>();
+                    List<XYZ> test2 = new List<XYZ>();
+                    test1 = Utils.lazyInstance.lowestPolyg;
+                    test2 = Utils.lazyInstance.highestPolyg;
+                    if (test1.Count() != 0 && test2.Count() != 0)
+                    {
+                        startingPoint = Utils.lazyInstance.GetCenterOfPolygon(test1);
+                        endingPoint = Utils.lazyInstance.GetCenterOfPolygon(test2);
+                    }
+         
+                    Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[i]).Value.Item2,
+                                                                    RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[i]).Key.Level);
+                    List<XYZ> test5 = new List<XYZ>();
+                    List<XYZ> test6 = new List<XYZ>();
+                    test5 = Utils.lazyInstance.lowestPolyg;
+                    test6 = Utils.lazyInstance.highestPolyg;
+                    XYZ SendingPoint = Utils.lazyInstance.GetCenterOfPolygon(test6);
+                    startingPoint = Utils.lazyInstance.GetCenterOfPolygon(test5);
+                    Duct duct = null;
+                    Connector ductStart = null;
+                    Connector ductEnd = null;
+                    Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Value.Item2,
+                                                                    RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Key.Level);
+                    List<XYZ> test3 = new List<XYZ>();
+                    List<XYZ> test4 = new List<XYZ>();
+                    test3 = Utils.lazyInstance.lowestPolyg;
+                    test4 = Utils.lazyInstance.highestPolyg;
+                    endingPoint = new XYZ(SendingPoint.X, SendingPoint.Y, Utils.lazyInstance.GetCenterOfPolygon(test4).Z);
+
+                    if (tiltingSpaces.Contains(correspSmallestSpaces[i]) && i != RevitDataContext.lazyInstance.SpacesInfo.Count() - 1)
+                    {
+                        XYZ nSt = new XYZ(startingPoint.X - 0.1, startingPoint.Y, startingPoint.Z - 0.8);
+                        startingPoint = nSt;
+                    }
+                    Debug.WriteLine("i: " + i);
+                    if (!tiltingSpaces.Contains(i) || i == 0 || i == tiltingSpaces.LastOrDefault())
+                    {
+                        if (currentConn != null)
+                        {
+                            XYZ nStart1 = currentConnOrigin;
+                            endingPoint = nStart1;
+                        }
+                        using (Transaction tr = new Transaction(doc))
+                        {
+                            tr.Start("Create New Duct");
+                            {
+                                if (currentConn == null)
+                                    duct = Duct.Create(doc, mechType.Id, ductType.Id, RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Key.LevelId, startingPoint, endingPoint);
+                                else
+                                {
+                                    duct = Duct.Create(doc, ductType.Id, RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Key.LevelId, currentConn, startingPoint);
+                                    Debug.WriteLine("currentConn.Origin: " + currentConn.Origin);
+                                    Debug.WriteLine("startingPoint Origin: " + startingPoint);
+                                }
+                              
+
+                                Parameter parameter = duct.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM);
+                                parameter.Set(diameter);
+                                List<Connector> lC = new List<Connector>();
+                                foreach (Connector conn in duct.ConnectorManager.Connectors)
+                                {
+                                    if (conn.ConnectorType == ConnectorType.End)
+                                        lC.Add(conn);
+                                }
+
+                                if (lC.ElementAt(0).Origin.Z > lC.ElementAt(1).Origin.Z)
+                                {
+                                    ductStart = lC.ElementAt(1);
+                                    ductEnd = lC.ElementAt(0);
+                                }
+                                else
+                                {
+                                    ductStart = lC.ElementAt(0);
+                                    ductEnd = lC.ElementAt(1);
+                                }
+                                if (currentConn == null)
+                                {
+                                    currentConnectors.Add("start" + i, ductStart);
+                                    currentConnectors.Add("end" + i, ductEnd);
+                                }
+                                else
+                                {
+                                    currentConnectors.Add("start" + i, currentConn);
+                                    currentConnectors.Add("end" + i, ductEnd);
+                                    doc.Create.NewElbowFitting(ductStart, currentConn);
+                                }
+                                Debug.WriteLine("Passed, ductStart.Origin : " + ductStart.Origin);
+                                tr.Commit();
+                                currentConn = ductEnd;
+                            }
+                        }
+                    }
+
+                    // is getting tilted
+                    if (tiltingSpaces.Contains(correspSmallestSpaces[i]) 
+                        && i != RevitDataContext.lazyInstance.SpacesInfo.Count() - 1 
+                        && correspSmallestSpaces[i] != RevitDataContext.lazyInstance.SpacesInfo.Count() - 1)
+                    {
+                        
+                        Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[i + 1]).Value.Item2,
+                                                                        RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[i + 1]).Key.Level);
+                        List<XYZ> test7 = new List<XYZ>();
+                        test7 = Utils.lazyInstance.lowestPolyg;
+                        var tempZ = startingPoint.Z;
+                        endingPoint = new XYZ(Utils.lazyInstance.GetCenterOfPolygon(test7).X, Utils.lazyInstance.GetCenterOfPolygon(test7).Y, tempZ);
+
+                        if (currentConn != null)
+                        {
+                            Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[correspSmallestSpaces[i] + 1]).Value.Item2,
+                                                                        RevitDataContext.lazyInstance.SpacesInfo.ElementAt(correspSmallestSpaces[i + 1]).Key.Level);
+                            List<XYZ> test77 = new List<XYZ>();
+                            test77 = Utils.lazyInstance.lowestPolyg;
+                            var tempZZ = startingPoint.Z;
+                            endingPoint = new XYZ(Utils.lazyInstance.GetCenterOfPolygon(test77).X, Utils.lazyInstance.GetCenterOfPolygon(test77).Y, tempZ);
+                        }
+
+                        using (Transaction tr2 = new Transaction(doc))
+                        {
+                            tr2.Start("Create New Tilting Duct");
+                            {
+                                duct = Duct.Create(doc, mechType.Id, ductType.Id, RevitDataContext.lazyInstance.SpacesInfo.ElementAt(i).Key.LevelId, startingPoint, endingPoint);
+                                Debug.WriteLine("startingPoint Origin: " + startingPoint);
+                                Debug.WriteLine("endingPoint.Origin: " + endingPoint);
+
+                                Parameter parameter = duct.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM);
+                                parameter.Set(diameter);
+                                List<Connector> lC = new List<Connector>();
+                                foreach (Connector conn in duct.ConnectorManager.Connectors)
+                                {
+                                    if (conn.ConnectorType == ConnectorType.End)
+                                        lC.Add(conn);
+                                }
+                                int tempi = i + 1;
+                                if (i != 0)
+                                    tempi = correspSmallestSpaces[correspSmallestSpaces[i] + 1];
+                                // getting the right start and end duct
+                                Utils.lazyInstance.GetLowestAndHighestPolygon(RevitDataContext.lazyInstance.SpacesInfo.ElementAt(tempi).Value.Item2,
+                                                                                RevitDataContext.lazyInstance.SpacesInfo.ElementAt(tempi).Key.Level);
+
+                                List<XYZ> test8 = new List<XYZ>();
+                                test8 = Utils.lazyInstance.lowestPolyg;
+                                lC = Utils.lazyInstance.GetClosestConnector(lC, Utils.lazyInstance.GetCenterOfPolygon(test8));
+                                ductStart = lC.ElementAt(0);
+                                ductEnd = lC.ElementAt(1);
+
+                                currentConnOrigin = ductStart.Origin;
+                                test11 = ductEnd.Origin;
+                                Debug.WriteLine("Start of tilting is :" + ductStart.Origin);
+                                Debug.WriteLine("end of tilting is :" + ductEnd.Origin);
+                                currentConn = ductStart;
+                                doc.Create.NewElbowFitting(ductEnd, currentConnectors.ElementAt(currentConnectors.Count() - 1).Value);
+                                currentConnectors.Add("startTilted" + i, ductStart);
+                                currentConnectors.Add("endTilted" + i, ductEnd);
+                            }
+                            tr2.Commit();
+                        }
+                    }
+                    i = correspSmallestSpaces[i] + 1;
+                    currentElement = e;
+                }
+                catch (Exception ex)
+                {
+                    break;
+                }   
             }
         }
     }
 }
+
+// custom equality to compare list of SpatialElement
+public class CusComparer : IEqualityComparer<List<SpatialElement>>
+{
+    public bool Equals(List<SpatialElement> x, List<SpatialElement> y)
+    {
+        bool eq = true;
+        for (int i = 0; i < x.Count() && i < y.Count(); i += 1)
+        {
+            if (x.ElementAt(i).Number != y.ElementAt(i).Number)
+                eq = false;
+        }
+        return eq;
+    }
+
+    public int GetHashCode(List<SpatialElement> obj)
+    {
+         int hashCode = 0;
+
+        for (var index = 0; index < obj.Count; index++)
+        {
+            hashCode ^= new {Index = index, Item = obj[index]}.GetHashCode();
+        }
+        return hashCode;
+    }
+}
+

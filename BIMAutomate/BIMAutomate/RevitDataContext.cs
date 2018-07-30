@@ -1,4 +1,5 @@
-﻿using Autodesk.Revit.DB;
+﻿// nadir.arbia@gmail.com
+using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
 using System;
 using System.Collections.Generic;
@@ -8,11 +9,13 @@ using System.Text;
 
 namespace BIMAutomate
 {
+    using SpaceInformations = Dictionary<Space, Tuple<XYZ, List<XYZ>, List<XYZ>, List<XYZ>>>;
+
     public class RevitDataContext
     {
         public static readonly RevitDataContext lazyInstance = new RevitDataContext();
-      
-        public Dictionary<Space, Tuple<XYZ, List<XYZ>>> SpacesInfo;
+
+        public SpaceInformations SpacesInfo = new SpaceInformations();
         public List<XYZ> Edges = new List<XYZ>();
-    }
+}
 }

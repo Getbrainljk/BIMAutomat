@@ -52,12 +52,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AutomateForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="AutomateForm.Designer.cs">
-      <DependentUpon>AutomateForm.cs</DependentUpon>
-    </Compile>
     <Compile Include="BIMAutomateClass.cs" />
     <Compile Include="RevitDataContext.cs" />
     <Compile Include="Drawer.cs" />
@@ -69,11 +63,6 @@
       <SubType>Designer</SubType>
     </None>
     <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="AutomateForm.resx">
-      <DependentUpon>AutomateForm.cs</DependentUpon>
-    </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

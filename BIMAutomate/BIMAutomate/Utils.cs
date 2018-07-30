@@ -1,4 +1,5 @@
-﻿using Autodesk.Revit.DB;
+﻿// nadir.arbia@gmail.com
+using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Plumbing;
@@ -21,8 +22,8 @@ namespace BIMAutomate
         private Document doc;
         public ICollection<Element> levels;
 
-        public Dictionary<Level, List<XYZ>> lowestPolyg = new Dictionary<Level, List<XYZ>>();
-        public Dictionary<Level, List<XYZ>> highestPolyg = new Dictionary<Level, List<XYZ>>();
+        public List<XYZ> lowestPolyg = new List<XYZ>();
+        public List<XYZ> highestPolyg = new List<XYZ>();
 
         public void SetEnv(UIApplication uiapp)
         {
@@ -34,6 +35,56 @@ namespace BIMAutomate
         public static bool IsParallel(XYZ p, XYZ q)
         {
             return p.CrossProduct(q).IsZeroLength();
+        }
+
+        public void PurgeList(List<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>> l)
+        {
+            for (int i = 0; i < l.Count(); i += 1)
+            {
+                XYZ temp = l.ElementAt(i).Item3;
+                for (int j = 0; j< l.Count(); j += 1)
+                {
+                    if (i != j)
+                        if (l.ElementAt(j).Item3.X == l.ElementAt(i).Item3.X &&
+                            l.ElementAt(j).Item3.Y == l.ElementAt(i).Item3.Y &&
+                            l.ElementAt(j).Item3.Z == l.ElementAt(i).Item3.Z)
+                            l.RemoveAt(j);
+                }
+            }
+        }
+
+        public List<Connector> GetClosestConnector(List<Connector> lp, XYZ pos)
+        {
+            /// projected in 2d
+            /// sort  closest distance
+            double d1x = lp.ElementAt(0).Origin.X;
+            double d1y = lp.ElementAt(0).Origin.Y;
+
+            double d2x = lp.ElementAt(1).Origin.X;
+            double d2y = lp.ElementAt(1).Origin.Y;
+
+            double posx = pos.X;
+            double posy = pos.Y;
+
+            double d11x = d1x - posx;
+            double d11y = d1y - posy;
+
+            double d22x = d2x - posx;
+            double d22y = d2y - posy;
+
+            double distance1 = d11x * d11x + d11y * d11y;
+            double distance2 = d22x * d22x + d22y * d22y;
+
+
+            if (distance1 < distance2)
+                return lp;
+            else
+            {
+                List<Connector> nlc = new List<Connector>();
+                nlc.Add(lp.ElementAt(1));
+                nlc.Add(lp.ElementAt(0));
+                return nlc;
+            }
         }
 
         public static IOrderedEnumerable<Level> FindAndSortLevels(Document doc)
@@ -58,6 +109,8 @@ namespace BIMAutomate
             TaskDialog.Show(_caption, msg,
               TaskDialogCommonButtons.Ok);
         }
+
+
 
         /// <summary>   
         /// MessageBox or Revit TaskDialog 
@@ -100,43 +153,6 @@ namespace BIMAutomate
             levels = lvlCollection;
         }
 
-
-        public void GetBoundaryFacesOfASpace(Space mySpace)
-        {
-            SpatialElementGeometryCalculator calculator = new SpatialElementGeometryCalculator(doc);
-
-            // compute the room geometry
-            SpatialElementGeometryResults results = calculator.CalculateSpatialElementGeometry(mySpace);
-
-            // get the solid representing the room's geometry
-            Solid roomSolid = results.GetGeometry();
-            Debug.WriteLine("----- SurfaceArea Total: " + roomSolid.SurfaceArea + "------");
-
-
-
-            //foreach (XYZ ii in edge.Tessellate())
-            //    double faceArea = face.Area * 0.092903; // convert tofeeet
-            // Debug.WriteLine("Surface BfaceArea:" + faceArea);
-            // get the sub-faces for the face of the room
-
-
-            //IList<SpatialElementBoundarySubface> subfaceList = results.GetBoundaryFaceInfo(face);
-            //foreach (SpatialElementBoundarySubface subface in subfaceList)
-            //{
-            //    if (subfaceList.Count > 1) // there are multiple sub-faces that define the face
-            //    {
-            //        //  Debug.WriteLine(subface.GetSpatialElementFace());
-            //        // get the area of each sub-face
-            //        double subfaceArea = subface.GetSubface().Area;
-            //        Debug.WriteLine("subfaceArea:" + subfaceArea);
-
-            //        // sub-faces exist in situations such as when a room-bounding wall has been
-            //        // horizontally split and the faces of each split wall combine to create the 
-            //        // entire face of the room
-            //    }
-            //}
-        }
-
         public XYZ GetCenterOfPolygon(List<XYZ> lxyz)
         {
             double x = 0, y = 0, z = 0;
@@ -157,6 +173,8 @@ namespace BIMAutomate
         public void GetLowestAndHighestPolygon(List<XYZ> lxyz, Level lvl)
         {
             XYZ xYZ1 = null;
+            highestPolyg.Clear();
+            lowestPolyg.Clear();
 
             foreach (var p2 in lxyz)
             {
@@ -175,11 +193,35 @@ namespace BIMAutomate
                 else if (p1.Z > xYZ1.Z)
                     lp2.Add(p1);
             }
-            highestPolyg.Add(lvl, lp);
-            lowestPolyg.Add(lvl, lp2);
-        }
+            lp.Sort(new XYZComparer());
+            lp2.Sort(new XYZComparer());
 
-    public bool GetElementLocation(out XYZ p, Element e)
+            highestPolyg = lp;
+            lowestPolyg = lp2;
+        }
+        public static XYZ FindLineIntersection(XYZ start1, XYZ end1, XYZ start2, XYZ end2)
+        {
+
+            double denom = ((end1.X - start1.X) * (end2.Y - start2.Y)) - ((end1.Y - start1.Y) * (end2.X - start2.X));
+
+            //  AB & CD are parallel 
+            //if (denom == 0)
+            //    return PointF.Empty;
+
+            double numer = ((start1.Y - start2.Y) * (end2.X - start2.X)) - ((start1.X - start2.X) * (end2.Y - start2.Y));
+
+            double r = numer / denom;
+
+            double numer2 = ((start1.Y - start2.Y) * (end1.X - start1.X)) - ((start1.X - start2.X) * (end1.Y - start1.Y));
+
+            double s = numer2 / denom;
+
+            if ((r < 0 || r > 1) || (s < 0 || s > 1))
+                return null;
+
+            return new XYZ(start1.X + (r * (end1.X - start1.X)), start1.Y + (r * (end1.Y - start1.Y)), 0);
+        }
+        public bool GetElementLocation(out XYZ p, Element e)
         {
             p = XYZ.Zero;
             bool rc = false;
@@ -210,6 +252,26 @@ namespace BIMAutomate
 
     public static class JtBoundingBoxXyzExtensionMethods
     {
+
+        /// <summary>
+        /// Return the bottom four XYZ corners of the given 
+        /// bounding box in the XY plane at the minimum 
+        /// Z elevation in the order lower left, lower 
+        /// right, upper right, upper left:
+        /// </summary>
+        public static XYZ[] GetBottomCorners(
+          BoundingBoxXYZ b)
+        {
+            double z = b.Min.Z;
+
+            return new XYZ[] {
+            new XYZ( b.Min.X, b.Min.Y, z ),
+            new XYZ( b.Max.X, b.Min.Y, z ),
+            new XYZ( b.Max.X, b.Max.Y, z ),
+            new XYZ( b.Min.X, b.Max.Y, z )
+          };
+        }
+
         public static BoundingBoxXYZ GetBoundingBox(IList<IList<BoundarySegment>> boundary)
         {
             BoundingBoxXYZ bb = new BoundingBoxXYZ();
@@ -490,7 +552,59 @@ namespace BIMAutomate
 
     }
 
+    // X Y Z Comparer / Equality
+    public class XYZComparer : IComparer<XYZ>
+    {
+        public int Compare(XYZ x, XYZ y)
+        {
+            if (((double)x.X == (double)y.X) && ((double)x.Y == (double)y.Y))
+                return 0;
+            if (((double)x.X > (double)y.X) || (((double)x.X == (double)y.X) && ((double)x.Y > (double)y.Y)))
+                return -1;
+
+            return 1;
+        }
+    }
+    public class XYZEquality : IEqualityComparer<XYZ>
+    {
+        public bool Equals(XYZ x, XYZ y)
+        {
+            if (Object.ReferenceEquals(x, y))
+                return true;
+
+            if (Object.ReferenceEquals(x, null) || Object.ReferenceEquals(y, null))
+                return false;
+
+            return (x.X == y.X && x.Y == y.Y && x.Z == y.Z);
+        }
+
+        public int GetHashCode(XYZ obj)
+        {
+            return obj.GetHashCode();
+        }
+    }
+    
+    public class UnorderedTupleComparer : IEqualityComparer<Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ>>
+    {
+        
+        public bool Equals(Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ> x, Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ> y)
+        {
+            if (Object.ReferenceEquals(x, y))
+                return true;
+
+            if (Object.ReferenceEquals(x, null) || Object.ReferenceEquals(y, null))
+                return false;
+
+            return (x.Item3.X == y.Item3.X && x.Item3.Y == y.Item3.Y && x.Item3.Z == y.Item3.Z);
+        }
+
+        public int GetHashCode(Tuple<Tuple<XYZ, XYZ>, Tuple<XYZ, XYZ>, XYZ> obj)
+        {
+            return obj.GetHashCode();
+        }
+    }
 }
+
 
 #endregion
 
